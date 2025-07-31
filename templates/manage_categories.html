@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Categories{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto py-8">
+    <h1 class="text-2xl font-bold mb-6">Manage Categories</h1>
+    
+    <!-- Add Category Form -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+        <h2 class="text-xl font-semibold mb-4">Add New Category</h2>
+        <form method="POST" action="{{ url_for('manage_categories') }}" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input type="text" name="name" required 
+                           class="w-full px-3 py-2 border rounded-md">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                    <input type="color" name="color" value="#3B82F6" 
+                           class="w-full h-10 border rounded-md">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Icon</label>
+                    <select name="icon" class="w-full px-3 py-2 border rounded-md">
+                        <option value="tag">Tag</option>
+                        <option value="utensils">Food</option>
+                        <option value="car">Transport</option>
+                        <option value="film">Entertainment</option>
+                        <option value="bolt">Utilities</option>
+                        <option value="shopping-bag">Shopping</option>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" 
+                    class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                Add Category
+            </button>
+        </form>
+    </div>
+    
+    <!-- Categories List -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-xl font-semibold mb-4">Your Categories</h2>
+        <div class="space-y-3">
+            {% for category in categories %}
+            <div class="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 rounded-md mr-3 flex items-center justify-center"
+                         style="background-color: {{ category.color }}20; color: {{ category.color }}">
+                        <i class="fas fa-{{ category.icon }}"></i>
+                    </div>
+                    <span class="font-medium">
+                        {{ category.name }}
+                        {% if category.is_default %}
+                        <span class="text-xs text-gray-500 ml-2">(Default)</span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm text-gray-500">
+                        {{ category.transactions|length }} transactions
+                    </span>
+                    {% if not category.is_default %}
+                    <button onclick="showEditModal({{ category.id }}, '{{ category.name }}', '{{ category.color }}', '{{ category.icon }}')"
+                            class="text-blue-600 hover:text-blue-800">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <form method="POST" action="{{ url_for('update_category', category_id=category.id) }}"
+                          onsubmit="return confirm('Delete this category? Transactions will be moved to Uncategorized.');">
+                        <input type="hidden" name="_method" value="DELETE">
+                        <button type="submit" class="text-red-600 hover:text-red-800">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <p class="text-gray-500">No categories found. Add your first category above.</p>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div id="editModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Edit Category</h3>
+            <button onclick="document.getElementById('editModal').classList.add('hidden')"
+                    class="text-gray-500 hover:text-gray-700">
+                &times;
+            </button>
+        </div>
+        <form id="editForm" method="POST" class="space-y-4">
+            <input type="hidden" name="_method" value="PUT">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input type="text" name="name" id="editName" required 
+                       class="w-full px-3 py-2 border rounded-md">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                <input type="color" name="color" id="editColor" 
+                       class="w-full h-10 border rounded-md">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Icon</label>
+                <select name="icon" id="editIcon" class="w-full px-3 py-2 border rounded-md">
+                    <option value="tag">Tag</option>
+                    <option value="utensils">Food</option>
+                    <option value="car">Transport</option>
+                    <option value="film">Entertainment</option>
+                    <option value="bolt">Utilities</option>
+                    <option value="shopping-bag">Shopping</option>
+                </select>
+            </div>
+            <div class="flex justify-end space-x-3">
+                <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')"
+                        class="px-4 py-2 border rounded-md">
+                    Cancel
+                </button>
+                <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showEditModal(id, name, color, icon) {
+    document.getElementById('editName').value = name;
+    document.getElementById('editColor').value = color;
+    document.getElementById('editIcon').value = icon;
+    
+    const form = document.getElementById('editForm');
+    form.action = `/categories/${id}`;
+    
+    document.getElementById('editModal').classList.remove('hidden');
+}
+</script>
+{% endblock %}

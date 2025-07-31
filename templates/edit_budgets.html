@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Budgets{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-lg mt-10">
+    <h2 class="text-2xl font-bold mb-6 text-center">
+        {% if clean_slate %}
+            Create Custom Budgets
+        {% else %}
+            Edit Budgets
+        {% endif %}
+    </h2>
+    
+    <form method="POST" class="space-y-6">
+        {% if clean_slate %}
+        <!-- Clean Slate Mode - Add Categories Dynamically -->
+        <div class="mb-6">
+            <div class="flex items-center mb-4">
+                <input type="text" id="newCategoryName" placeholder="Category Name" 
+                       class="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="button" onclick="addCategoryField()" 
+                        class="ml-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                    Add Category
+                </button>
+            </div>
+            <div id="customCategories" class="space-y-4">
+                <!-- Dynamic fields will appear here -->
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Budget Input Fields -->
+        <div class="space-y-4">
+            {% for category, amount in budgets.items() %}
+            <div class="flex items-center justify-between">
+                <label for="budget_{{ category }}" class="w-1/3 font-medium">
+                    {{ category }}
+                </label>
+                <div class="relative rounded-md shadow-sm w-2/3">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <span class="text-gray-500">$</span>
+                    </div>
+                    <input type="number" step="0.01" 
+                           id="budget_{{ category }}" 
+                           name="budget_{{ category }}"
+                           value="{{ "%.2f"|format(amount) if amount > 0 else '' }}"
+                           placeholder="0.00"
+                           class="block w-full pl-7 pr-12 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <div class="pt-4 flex justify-between">
+            <a href="{{ url_for('setup_budget') }}"
+               class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">
+                Back
+            </a>
+            <button type="submit" 
+                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                Save Budgets
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+// Only for clean slate mode
+function addCategoryField() {
+    const nameInput = document.getElementById('newCategoryName');
+    const categoryName = nameInput.value.trim();
+    
+    if (!categoryName) return;
+    
+    const container = document.getElementById('customCategories');
+    const newField = document.createElement('div');
+    newField.className = 'flex items-center justify-between';
+    newField.innerHTML = `
+        <label class="w-1/3 font-medium">${categoryName}</label>
+        <div class="relative rounded-md shadow-sm w-2/3">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <span class="text-gray-500">$</span>
+            </div>
+            <input type="number" step="0.01" 
+                   name="budget_${categoryName}"
+                   placeholder="0.00"
+                   class="block w-full pl-7 pr-12 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+        </div>
+    `;
+    
+    container.appendChild(newField);
+    nameInput.value = ''; // Clear the input
+}
+</script>
+{% endblock %}

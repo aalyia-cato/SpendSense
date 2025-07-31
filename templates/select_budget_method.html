@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-lg mt-10">
+    <h2 class="text-2xl font-bold mb-6 text-center">Budget Setup Method</h2>
+    
+    <form method="POST" class="space-y-6">
+        <div class="space-y-4">
+            <div class="flex items-center p-4 border rounded-lg hover:bg-gray-50">
+                <input type="radio" id="auto" name="budget_method" value="auto" class="h-5 w-5" checked>
+                <label for="auto" class="ml-3 block">
+                    <span class="font-medium">Automatic Budgets</span>
+                    <p class="text-sm text-gray-500">We'll calculate budgets based on your transaction history</p>
+                </label>
+            </div>
+            
+            <div class="flex items-center p-4 border rounded-lg hover:bg-gray-50">
+                <input type="radio" id="manual" name="budget_method" value="manual" class="h-5 w-5">
+                <label for="manual" class="ml-3 block">
+                    <span class="font-medium">Manual Budget Entry</span>
+                    <p class="text-sm text-gray-500">I'll enter my own budget amounts</p>
+                </label>
+            </div>
+        </div>
+        
+        <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700">
+            Continue
+        </button>
+    </form>
+</div>
+{% endblock %}

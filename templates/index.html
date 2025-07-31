@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto py-12">
+    <div class="bg-white rounded-lg shadow-xl p-8 text-center">
+        <h1 class="text-4xl font-bold text-blue-600 mb-6">Take Control of Your Finances</h1>
+        <p class="text-xl text-gray-700 mb-8">SpendSense helps you analyze your spending patterns and stay within budget</p>
+        
+        <div class="flex justify-center space-x-4">
+            <a href="{{ url_for('register') }}" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-300">
+                Get Started
+            </a>
+            <a href="{{ url_for('login') }}" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-3 px-6 rounded-lg transition duration-300">
+                Login
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,596 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - SpendSense{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1.5rem;
+    }
+    
+    .stat-card {
+        transition: transform 0.3s ease;
+        border-radius: 0.75rem;
+        overflow: hidden;
+    }
+    
+    .stat-card:hover {
+        transform: translateY(-5px);
+    }
+    
+    .progress-bar {
+        height: 8px;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    
+    .insight-card {
+        border-left: 4px solid;
+        transition: all 0.3s ease;
+    }
+    
+    .insight-card:hover {
+        transform: translateX(5px);
+    }
+    
+    .chart-container {
+        position: relative;
+        height: 300px;
+    }
+    
+    .chart-container-sm {
+        position: relative;
+        height: 200px;
+    }
+    
+    .transaction-category {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Explicit color classes for dynamic categories */
+    .category-transport { background-color: rgba(59, 130, 246, 0.1); }
+    .category-food { background-color: rgba(16, 185, 129, 0.1); }
+    .category-entertainment { background-color: rgba(139, 92, 246, 0.1); }
+    .category-utilities { background-color: rgba(245, 158, 11, 0.1); }
+    .category-shopping { background-color: rgba(236, 72, 153, 0.1); }
+    .category-other { background-color: rgba(156, 163, 175, 0.1); }
+
+    .stat-card-sm {
+        transition: all 0.3s ease;
+        border-radius: 0.75rem;
+        padding: 1rem;
+    }
+
+    .stat-card-sm:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <!-- Header -->
+    <header class="bg-white dark:bg-gray-800 shadow-sm">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <div class="bg-blue-600 w-10 h-10 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-chart-pie text-white text-xl"></i>
+                </div>
+                <h1 class="text-xl font-bold text-blue-600 dark:text-blue-400">SpendSense</h1>
+            </div>
+            
+            <div class="flex items-center space-x-6">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-full bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold">
+                        {{ current_user.username[0:2]|upper }}
+                    </div>
+                    <div>
+                        <p class="font-medium">{{ current_user.username }}</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                            {% set now = datetime.now() %}
+                            {{ now.strftime('%B %d, %Y') }}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        <!-- Dashboard Header with New Trend Graph -->
+        <div class="mb-8">
+            <div class="flex flex-col md:flex-row md:items-center justify-between">
+                <div>
+                    <h2 class="text-3xl font-bold text-gray-900 dark:text-white">
+                        Welcome back, {{ current_user.username }}!
+                    </h2>
+                    <span class="inline-block bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 text-sm px-3 py-1 rounded-full mt-2">
+                        Financial summary for {{ now.strftime('%B %Y') }}
+                    </span>
+                </div>
+                <div class="mt-4 md:mt-0">
+                    <button class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg flex items-center">
+                        <i class="fas fa-file-export mr-2"></i>
+                        Export Report
+                    </button>
+                </div>
+            </div>
+            
+<!-- Income vs Expenses Summary -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <!-- Income Card -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-gray-500 dark:text-gray-400">Total Income</p>
+                <p class="text-2xl font-bold text-green-600">
+                    ${{ "%.2f"|format(income|default(0)) }}
+                </p>
+            </div>
+            <div class="bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-300 p-3 rounded-lg">
+                <i class="fas fa-arrow-down text-xl"></i>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Expenses Card -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-gray-500 dark:text-gray-400">Total Expenses</p>
+                <p class="text-2xl font-bold text-red-600">
+                    ${{ "%.2f"|format(expenses|default(0)) }}
+                </p>
+            </div>
+            <div class="bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-300 p-3 rounded-lg">
+                <i class="fas fa-arrow-up text-xl"></i>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Net Worth Card -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-gray-500 dark:text-gray-400">Net Worth</p>
+                <p class="text-2xl font-bold {% if (net_worth|default(0)) >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                    ${{ "%.2f"|format(net_worth|default(0)) }}
+                </p>
+            </div>
+            <div class="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 p-3 rounded-lg">
+                <i class="fas fa-chart-line text-xl"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+            <!-- New Combined Section with Graph and Stats -->
+            <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Monthly Trend Graph -->
+                <div class="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-lg lg:col-span-2">
+                    <h3 class="text-lg font-semibold mb-4">6-Month Spending Trend</h3>
+                    <div class="chart-container-sm">
+                        <canvas id="monthlyTrendChart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Quick Stats -->
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Total Spending Card -->
+                    <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-lg stat-card-sm">
+                        <p class="text-gray-500 dark:text-gray-400 text-sm">Total Spending</p>
+                        <p class="text-xl font-bold mt-1">${{ "%.2f"|format(total_spent) }}</p>
+                        <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            <i class="fas fa-calendar mr-1 text-blue-500"></i>
+                            Since {{ (now - timedelta(days=30)).strftime('%b %d') }}
+                        </div>
+                    </div>
+                    
+                    <!-- Budget Utilization Card -->
+                    <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-lg stat-card-sm">
+                        <p class="text-gray-500 dark:text-gray-400 text-sm">Budget Utilization</p>
+                        <p class="text-xl font-bold mt-1">{{ budget_utilization }}%</p>
+                        <div class="mt-2 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full">
+                            <div class="h-full bg-green-500 rounded-full" 
+                                style="width: {{ budget_utilization }}%"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Top Category Card -->
+                    <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-lg stat-card-sm">
+                        <p class="text-gray-500 dark:text-gray-400 text-sm">Top Category</p>
+                        <p class="text-xl font-bold mt-1">{{ top_category }}</p>
+                        <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            <i class="fas fa-tag mr-1 text-purple-500"></i>
+                            ${{ "%.2f"|format(top_category_amount) }}
+                        </div>
+                    </div>
+                    
+                    <!-- Month Comparison Card -->
+                    <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-lg stat-card-sm">
+                        <p class="text-gray-500 dark:text-gray-400 text-sm">Monthly Change</p>
+                        {% set trend = monthly_spending.data[-1] - monthly_spending.data[-2] if monthly_spending.data|length > 1 else 0 %}
+                        <p class="text-xl font-bold mt-1">
+                            {{ '+' if trend > 0 }}${{ "%.2f"|format(abs(trend)) }}
+                        </p>
+                        <div class="mt-2 text-xs {{ 'text-green-500' if trend < 0 else 'text-red-500' }}">
+                            <i class="fas {{ 'fa-arrow-down' if trend < 0 else 'fa-arrow-up' }} mr-1"></i>
+                            {{ ((abs(trend)/monthly_spending.data[-2])*100 if monthly_spending.data[-2] > 0 else 0)|round(1) }}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Charts & Insights -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left Column -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Spending Chart -->
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-bold">Spending Overview</h3>
+                        <div class="flex space-x-2">
+                            <button class="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg">Month</button>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="spendingChart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Category Breakdown -->
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                    <h3 class="text-xl font-bold mb-6">Budget Summary</h3>
+                    <div class="space-y-4">
+                        {% for category, data in spending_data.items() %}
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <span class="font-medium">{{ category }}</span>
+                                <span class="font-medium">
+                                    ${{ "%.2f"|format(data.spent) }} / ${{ "%.2f"|format(data.limit) }}
+                                </span>
+                            </div>
+                            {% set raw_percent = (data.spent / data.limit * 100) if data.limit > 0 else 0 %}
+                            {% set percent = raw_percent if raw_percent <= 100 else 100 %}
+                            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                                <div class="{% if data.spent > data.limit %}bg-red-500{% else %}bg-blue-500{% endif %} h-2.5 rounded-full" 
+                                    style="width: {{ percent }}%"></div>
+                            </div>
+                            <div class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                {% if data.spent > data.limit %}
+                                    Exceeded by ${{ "%.2f"|format(data.spent - data.limit) }}
+                                {% else %}
+                                    ${{ "%.2f"|format(data.remaining) }} remaining
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Right Column -->
+            <div class="space-y-6">
+                <!-- Spending Insights -->
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                    <h3 class="text-xl font-bold mb-6">Spending Insights</h3>
+                    <div class="space-y-4">
+                        {% for insight in insights %}
+                            {% if insight.type == 'category_leader' %}
+                            <div class="insight-card bg-blue-50/50 dark:bg-blue-900/20 p-4 rounded-lg border-l-4 border-blue-500">
+                                <div class="flex">
+                                    <div class="flex-shrink-0 mt-1">
+                                        <i class="fas fa-crown text-blue-500 text-xl"></i>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h4 class="font-semibold text-blue-800 dark:text-blue-200">Top Spending Category</h4>
+                                        <p class="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                                            Your highest spending is in <span class="font-bold">{{ insight.category }}</span> 
+                                            at ${{ "%.2f"|format(insight.amount) }} ({{ ((insight.amount / total_spent) * 100 if total_spent > 0 else 0)|round(1) }}% of total)
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            {% if insight.type == 'budget_progress' %}
+                            <div class="insight-card {% if insight.percent > 90 %}bg-red-50/50 dark:bg-red-900/20 border-l-red-500{% else %}bg-yellow-50/50 dark:bg-yellow-900/20 border-l-yellow-500{% endif %} p-4 rounded-lg border-l-4">
+                                <div class="flex">
+                                    <div class="flex-shrink-0 mt-1">
+                                        <i class="fas {% if insight.percent > 90 %}fa-exclamation-triangle text-red-500{% else %}fa-info-circle text-yellow-500{% endif %} text-xl"></i>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h4 class="font-semibold {% if insight.percent > 90 %}text-red-800 dark:text-red-200{% else %}text-yellow-800 dark:text-yellow-200{% endif %}">
+                                            {{ 'Budget Exceeded' if insight.percent > 100 else 'Budget Alert' }}
+                                        </h4>
+                                        <p class="text-sm {% if insight.percent > 90 %}text-red-700 dark:text-red-300{% else %}text-yellow-700 dark:text-yellow-300{% endif %} mt-1">
+                                            You've spent {{ "%.0f"|format(insight.percent) }}% of your {{ insight.category }} budget
+                                            (${{ "%.2f"|format(insight.spent) }} of ${{ "%.2f"|format(insight.limit) }})
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            {% if insight.type == 'trend' %}
+                            <div class="insight-card bg-green-50/50 dark:bg-green-900/20 p-4 rounded-lg border-l-4 border-green-500">
+                                <div class="flex">
+                                    <div class="flex-shrink-0 mt-1">
+                                        <i class="fas fa-chart-line text-green-500 text-xl"></i>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h4 class="font-semibold text-green-800 dark:text-green-200">Spending Trend</h4>
+                                        <p class="text-sm text-green-700 dark:text-green-300 mt-1">
+                                            Your spending is {{ insight.percent }}% 
+                                            {{ 'higher' if insight.direction == 'up' else 'lower' }} 
+                                            this month compared to last
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg">
+                                <p class="text-yellow-800 dark:text-yellow-200">
+                                    <i class="fas fa-info-circle mr-2"></i>
+                                    Add more transactions to generate personalized insights
+                                </p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+              <!-- Spending Projections Card -->
+<div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+    <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold">Spending Forecast</h3>
+        {% if projections.last_updated %}
+            <span class="text-xs text-gray-500" title="Last calculated">
+                <i class="fas fa-clock mr-1"></i>{{ projections.last_updated }}
+            </span>
+        {% endif %}
+    </div>
+
+    {% if projections.error %}
+        <div class="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 p-4 rounded-lg">
+            <i class="fas fa-exclamation-circle mr-2"></i>
+            Forecast temporarily unavailable
+        </div>
+    {% elif not projections.categories %}
+        <div class="bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 p-4 rounded-lg">
+            <i class="fas fa-info-circle mr-2"></i>
+            Add more transactions to enable spending forecasts
+        </div>
+    {% else %}
+        <!-- Total Projection -->
+        <div class="mb-6 p-4 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-gray-800 dark:to-gray-700 rounded-lg border border-blue-100 dark:border-gray-600">
+            <div class="flex justify-between items-center mb-1">
+                <span class="font-medium">Month End Forecast</span>
+                <span class="font-bold text-lg text-blue-600 dark:text-blue-300">
+                    ${{ "%.2f"|format(projections.total) }}
+                </span>
+            </div>
+            <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-2">
+                <span>
+                    <i class="fas fa-calendar-day mr-1"></i>
+                    {{ projections.days_remaining }} days remaining
+                </span>
+                <span>
+                    <i class="fas fa-bolt mr-1"></i>
+                    ${{ "%.2f"|format(projections.daily_rate) }}/day
+                </span>
+            </div>
+            <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div class="bg-gradient-to-r from-blue-400 to-blue-600 h-2 rounded-full" 
+                     style="width: {{ ((now.day / (now.day + projections.days_remaining)) * 100)|round(1) }}%"
+                     title="{{ ((now.day / (now.day + projections.days_remaining)) * 100)|round(1) }}% of month elapsed">
+                </div>
+            </div>
+        </div>
+
+        <!-- Category Breakdown -->
+        <div class="space-y-3">
+            {% for category, data in projections.categories.items() %}
+            <div class="p-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-lg transition-colors">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center">
+                        <div class="w-8 h-8 rounded-md mr-3 flex items-center justify-center
+                                  {% if category == 'Food' %}bg-green-100 text-green-600 dark:bg-green-900/30
+                                  {% elif category == 'Transport' %}bg-blue-100 text-blue-600 dark:bg-blue-900/30
+                                  {% elif category == 'Entertainment' %}bg-purple-100 text-purple-600 dark:bg-purple-900/30
+                                  {% else %}bg-gray-100 text-gray-600 dark:bg-gray-700{% endif %}">
+                            <i class="fas 
+                                {% if category == 'Food' %}fa-utensils
+                                {% elif category == 'Transport' %}fa-car
+                                {% elif category == 'Utilities' %}fa-bolt
+                                {% else %}fa-tag{% endif %} text-sm">
+                            </i>
+                        </div>
+                        <span class="font-medium">{{ category }}</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-bold block">${{ "%.2f"|format(data.projected) }}</span>
+                        <span class="text-xs text-gray-500 dark:text-gray-400">
+                            ${{ "%.2f"|format(data.current) }} spent
+                        </span>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>
+
+                <!-- Recent Transactions -->
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-bold">Recent Transactions</h3>
+                        <a href="{{ url_for('transactions') }}" class="text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 text-sm font-medium">
+                            View All
+                        </a>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        {% for transaction in recent_transactions %}
+                        <div class="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
+                            <div class="flex items-center">
+                                <div class="transaction-category" style="background-color: {{ transaction.category.color }}20;">
+    <i class="fas fa-{{ transaction.category.icon }}" style="color: {{ transaction.category.color }}"></i>
+</div>
+                                <div class="ml-3">
+                                    <p class="font-medium">{{ transaction.description|truncate(20) }}</p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                                        {{ transaction.category }} • {{ transaction.date.strftime('%b %d') }}
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-medium {% if transaction.amount > 0 %}text-red-500{% else %}text-green-500{% endif %}">
+                                    {{ '-$%.2f'|format(transaction.amount) if transaction.amount > 0 else '+$%.2f'|format(-transaction.amount) }}
+                                </p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">
+                                    {{ transaction.date.strftime('%I:%M %p') }}
+                                </p>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="text-center py-8 text-gray-500">
+                            <i class="fas fa-receipt text-3xl mb-3"></i>
+                            <p>No recent transactions</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Monthly Trend Chart
+        const trendCtx = document.getElementById('monthlyTrendChart').getContext('2d');
+        new Chart(trendCtx, {
+            type: 'line',
+            data: {
+                labels: {{ monthly_spending.labels|tojson }},
+                datasets: [{
+                    label: 'Monthly Spending',
+                    data: {{ monthly_spending.data|tojson }},
+                    borderColor: '#3B82F6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: true,
+                    pointBackgroundColor: '#3B82F6',
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return '$' + context.raw.toFixed(2);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return '$' + value;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Spending Chart
+        const spendingCtx = document.getElementById('spendingChart').getContext('2d');
+        const categories = {{ spending_data.keys()|list|tojson }};
+        const spentData = [
+            {% for data in spending_data.values() %}
+                {{ data.spent }}{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ];
+        
+        new Chart(spendingCtx, {
+            type: 'doughnut',
+            data: {
+                labels: categories,
+                datasets: [{
+                    data: spentData,
+                    backgroundColor: [
+                        '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
+                        '#6366F1', '#8B5CF6', '#EC4899', '#F97316', '#06B6D4'
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            color: '#6B7280',
+                            font: {
+                                size: 11
+                            },
+                            padding: 20
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: $${value.toFixed(2)} (${percentage}%)`;
+                            }
+                        }
+                    }
+                },
+                cutout: '60%',
+                animation: {
+                    animateRotate: true,
+                    animateScale: true
+                }
+            }
+        });
+        
+        // Animate progress bars
+        document.querySelectorAll('.progress-fill').forEach(el => {
+            const width = el.style.width;
+            el.style.width = '0';
+            setTimeout(() => {
+                el.style.width = width;
+            }, 300);
+        });
+    });
+</script>
+{% endblock %}
