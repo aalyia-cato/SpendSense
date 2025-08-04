@@ -12,7 +12,19 @@
         {% endif %}
     </h2>
     
-    <form method="POST" class="space-y-6">
+    <!-- FIXED: Change this button to use handle_budget_setup route -->
+    <div class="flex justify-between mb-6">
+        <h2 class="text-2xl font-bold">Edit Budgets</h2>
+        <form method="POST" action="{{ url_for('handle_budget_setup') }}" style="display: inline;">
+            <input type="hidden" name="budget_method" value="auto">
+            <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                <i class="fas fa-calculator mr-2"></i>Auto-Calculate Budgets
+            </button>
+        </form>
+    </div>
+
+    <!-- Fix the form action -->
+    <form method="POST" action="{{ url_for('edit_budgets') }}" class="space-y-6">
         {% if clean_slate %}
         <!-- Clean Slate Mode - Add Categories Dynamically -->
         <div class="mb-6">

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}{{ month_name }} {{ year }} Report | SpendSense{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Report Header -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold">{{ month_name }} {{ year }} Report</h1>
+            <p class="text-gray-600">
+                {{ start_date.strftime('%b %d') }} - {{ end_date.strftime('%b %d, %Y') }}
+            </p>
+        </div>
+        <a href="{{ url_for('reports') }}" class="text-blue-600 hover:text-blue-800">
+            ← Back to Reports
+        </a>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <!-- Income -->
+        <div class="bg-white p-6 rounded-lg shadow">
+            <h3 class="text-gray-500 text-sm font-medium mb-1">Total Income</h3>
+            <p class="text-2xl font-bold text-green-600">${{ "%.2f"|format(income) }}</p>
+        </div>
+        
+        <!-- Expenses -->
+        <div class="bg-white p-6 rounded-lg shadow">
+            <h3 class="text-gray-500 text-sm font-medium mb-1">Total Expenses</h3>
+            <p class="text-2xl font-bold text-red-600">${{ "%.2f"|format(expenses) }}</p>
+            <p class="text-sm mt-1 {% if spending_change > 0 %}text-red-500{% else %}text-green-500{% endif %}">
+                <i class="fas fa-arrow-{% if spending_change > 0 %}up{% else %}down{% endif %}"></i>
+                {{ "%.2f"|format(abs(spending_change)) }} ({{ spending_change_percent }}%)
+                vs {{ (datetime(year=prev_year, month=prev_month, day=1)).strftime('%B') }}
+            </p>
+        </div>
+        
+        <!-- Net Change -->
+        <div class="bg-white p-6 rounded-lg shadow">
+            <h3 class="text-gray-500 text-sm font-medium mb-1">Net Change</h3>
+            <p class="text-2xl font-bold {% if net_change >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                ${{ "%+.2f"|format(net_change) }}
+            </p>
+        </div>
+    </div>
+
+    <!-- Daily Spending Chart -->
+    <div class="bg-white p-6 rounded-lg shadow mb-8">
+        <h2 class="text-xl font-bold mb-4">Daily Spending</h2>
+        <div class="chart-container" style="height: 300px;">
+            <canvas id="dailyChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Category Breakdown -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- Budget Progress -->
+        <div class="bg-white p-6 rounded-lg shadow">
+            <h2 class="text-xl font-bold mb-4">Budget Progress</h2>
+            <div class="space-y-4">
+                {% for category, data in spending_data.items() if data.limit > 0 %}
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span>{{ category }}</span>
+                        <span>${{ "%.2f"|format(data.spent) }} / ${{ "%.2f"|format(data.limit) }}</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                        <div class="h-2.5 rounded-full {% if data.spent > data.limit %}bg-red-500{% else %}bg-blue-500{% endif %}" 
+                             style="width: {{ min(100, (data.spent / data.limit * 100)) }}%">
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-gray-500">No budgets set for this period</p>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Transactions List -->
+        <div class="bg-white p-6 rounded-lg shadow">
+            <h2 class="text-xl font-bold mb-4">All Transactions ({{ transactions|length }})</h2>
+            <div class="overflow-y-auto max-h-96">
+                <table class="min-w-full">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Description</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200">
+                        {% for t in transactions %}
+                        <tr>
+                            <td class="px-4 py-2 whitespace-nowrap">{{ t.date.strftime('%b %d') }}</td>
+                            <td class="px-4 py-2">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium" 
+                                      style="background-color: {{ t.category.color }}20; color: {{ t.category.color }}">
+                                    {{ t.category.name }}
+                                </span>
+                                <span class="ml-2">{{ t.description|truncate(20) }}</span>
+                            </td>
+                            <td class="px-4 py-2 whitespace-nowrap text-right font-medium {% if t.type == 'credit' %}text-green-600{% else %}text-red-600{% endif %}">
+                                {% if t.type == 'debit' %}-{% endif %}${{ "%.2f"|format(t.amount) }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Daily Spending Chart
+    const dailyCtx = document.getElementById('dailyChart').getContext('2d');
+    new Chart(dailyCtx, {
+        type: 'bar',
+        data: {
+            labels: {{ daily_data.labels|tojson }},
+            datasets: [{
+                label: 'Daily Spending',
+                data: {{ daily_data.data|tojson }},
+                backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                borderColor: 'rgba(239, 68, 68, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '$' + value;
+                        }
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return '$' + context.raw.toFixed(2);
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

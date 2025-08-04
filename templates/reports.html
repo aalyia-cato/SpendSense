@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Monthly Reports - SpendSense{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold">Monthly Reports</h1>
+        <a href="{{ url_for('dashboard') }}" class="text-blue-600 hover:text-blue-800">
+            ← Back to Dashboard
+        </a>
+    </div>
+
+    {% for year, months in reports_by_year.items() %}
+    <div class="mb-10">
+        <h2 class="text-2xl font-semibold mb-4 border-b pb-2">{{ year }}</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {% for month_data in months %}
+            <a href="{{ url_for('monthly_report', year=year, month=month_data.month) }}"
+   class="bg-white hover:bg-gray-50 border rounded-lg p-4 shadow-sm transition-colors">
+               
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h3 class="font-medium">{{ datetime(year=year, month=month_data.month, day=1).strftime('%B') }}</h3>
+                        <p class="text-sm text-gray-500 mt-1">{{ month_data.count }} transactions</p>
+                    </div>
+                    <i class="fas fa-chevron-right text-gray-400"></i>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow p-8 text-center">
+        <i class="fas fa-file-alt text-4xl text-gray-400 mb-4"></i>
+        <h3 class="text-xl font-medium text-gray-700 mb-2">No reports available yet</h3>
+        <p class="text-gray-500 mb-4">Your monthly reports will appear here after you have transactions</p>
+        <a href="{{ url_for('transactions') }}" class="text-blue-600 hover:text-blue-800 font-medium">
+            View Transactions →
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -114,6 +114,25 @@
                     <h2 class="text-3xl font-bold text-gray-900 dark:text-white">
                         Welcome back, {{ current_user.username }}!
                     </h2>
+                    <div class="flex items-center space-x-4 mb-6">
+    <select id="monthSelect" class="px-3 py-2 border rounded-lg bg-white dark:bg-gray-700">
+        {% for i in range(1,13) %}
+            <option value="{{ i }}" {% if i == selected_month %}selected{% endif %}>
+                {{ datetime(selected_year, i, 1).strftime('%B') }}
+            </option>
+        {% endfor %}
+    </select>
+    <select id="yearSelect" class="px-3 py-2 border rounded-lg bg-white dark:bg-gray-700">
+        {% for i in range(selected_year-2, selected_year+1) %}
+            <option value="{{ i }}" {% if i == selected_year %}selected{% endif %}>{{ i }}</option>
+        {% endfor %}
+    </select>
+    <button onclick="updateDashboardPeriod()" 
+            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        Apply
+    </button>
+</div>
+
                     <span class="inline-block bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 text-sm px-3 py-1 rounded-full mt-2">
                         Financial summary for {{ now.strftime('%B %Y') }}
                     </span>
@@ -478,6 +497,12 @@
 </div>
 
 <script>
+
+    function updateDashboardPeriod() {
+    const month = document.getElementById('monthSelect').value;
+    const year = document.getElementById('yearSelect').value;
+    window.location.href = `/dashboard?month=${month}&year=${year}`;
+}    
     document.addEventListener('DOMContentLoaded', function() {
         // Monthly Trend Chart
         const trendCtx = document.getElementById('monthlyTrendChart').getContext('2d');

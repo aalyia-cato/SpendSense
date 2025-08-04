@@ -18,7 +18,6 @@ import statistics
 import os
 from parsers.bank_parser import BankStatementParser
 from ml.predictor import CategoryPredictor
-from main_parser import run_parser_and_cleaner
 from transaction_processor import TransactionProcessor
 
 # Initialize Flask app first
@@ -54,8 +53,14 @@ def load_user(user_id):
 def home():
     if current_user.is_authenticated:
         if not current_user.has_completed_setup:
+            user_categories = Category.query.filter_by(user_id=current_user.id).first()
+            if not user_categories:
+                return redirect(url_for('select_categories'))
             return redirect(url_for('setup_budget'))
+        
+        # Go to dashboard properly
         return redirect(url_for('dashboard'))
+
     return render_template('index.html')
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -94,110 +99,242 @@ def register():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    # Calculate income vs expenses
-    income = db.session.query(
-        func.sum(Transaction.amount)
-    ).filter(
-        Transaction.user_id == current_user.id,
-        Transaction.type == 'credit'
-    ).scalar() or 0
+    try:
+        # Get selected month/year or use current
+        selected_month = request.args.get('month', default=datetime.now().month, type=int)
+        selected_year = request.args.get('year', default=datetime.now().year, type=int)
+        
+        # Validate month/year range
+        if not (1 <= selected_month <= 12):
+            selected_month = datetime.now().month
+        if selected_year < 2000 or selected_year > datetime.now().year + 1:
+            selected_year = datetime.now().year
 
-    expenses = db.session.query(
-        func.sum(Transaction.amount)
-    ).filter(
-        Transaction.user_id == current_user.id,
-        Transaction.type == 'debit'
-    ).scalar() or 0
+        # 1. INCOME CALCULATION (only credits) - with error handling
+        try:
+            income = db.session.query(
+                func.sum(Transaction.amount)
+            ).filter(
+                Transaction.user_id == current_user.id,
+                Transaction.type == 'credit',
+                db.extract('month', Transaction.date) == selected_month,
+                db.extract('year', Transaction.date) == selected_year
+            ).scalar() or 0
+        except Exception as e:
+            print(f"Income calculation error: {e}")
+            income = 0
 
-    net_worth = income - expenses
+        # 2. EXPENSES CALCULATION (only debits) - with error handling
+        try:
+            expenses = db.session.query(
+                func.sum(Transaction.amount)
+            ).filter(
+                Transaction.user_id == current_user.id,
+                Transaction.type == 'debit',
+                db.extract('month', Transaction.date) == selected_month,
+                db.extract('year', Transaction.date) == selected_year
+            ).scalar() or 0
+        except Exception as e:
+            print(f"Expenses calculation error: {e}")
+            expenses = 0
 
-    # Get all categories for the current user (including default ones)
-    categories = Category.query.filter(
-        (Category.user_id == current_user.id) | 
-        (Category.is_default == True)
-    ).all()
-    
-    # Get all transactions for the current user
-    transactions = Transaction.query.filter_by(user_id=current_user.id).all()
-    
-    # Get all budgets for the current user
-    budgets = {b.category_id: b for b in Budget.query.filter_by(user_id=current_user.id).all()}
-    
-    # Calculate spending per category
-    spending_data = {}
-    total_spent = 0
-    category_totals = defaultdict(float)
-    
-    for category in categories:
-        # Calculate spent amount for this category
-        category_spent = sum(
-            t.amount for t in transactions 
-            if t.category_id == category.id and t.type == 'debit'
+        # 3. NET WORTH (all-time) - with error handling
+        try:
+            all_time_income = db.session.query(
+                func.sum(Transaction.amount)
+            ).filter(
+                Transaction.user_id == current_user.id,
+                Transaction.type == 'credit'
+            ).scalar() or 0
+
+            all_time_expenses = db.session.query(
+                func.sum(Transaction.amount)
+            ).filter(
+                Transaction.user_id == current_user.id,
+                Transaction.type == 'debit'
+            ).scalar() or 0
+
+            net_worth = all_time_income - all_time_expenses
+        except Exception as e:
+            print(f"Net worth calculation error: {e}")
+            net_worth = 0
+
+        # 4. SPENDING DATA - with better error handling
+        try:
+            expense_categories = Category.query.filter(
+                ((Category.user_id == current_user.id) | (Category.is_default == True)),
+                Category.is_income == False
+            ).all()
+
+            # If no categories exist, create a default one
+            if not expense_categories:
+                default_category = Category(
+                    user_id=current_user.id,
+                    name='Other',
+                    color='#808080',
+                    icon='tag',
+                    is_income=False
+                )
+                db.session.add(default_category)
+                db.session.commit()
+                expense_categories = [default_category]
+
+            budgets = {b.category_id: b for b in Budget.query.filter_by(user_id=current_user.id).all()}
+            spending_data = {}
+            category_totals = {}
+            total_spent = 0
+
+            for category in expense_categories:
+                try:
+                    category_spent = db.session.query(
+                        func.sum(Transaction.amount)
+                    ).filter(
+                        Transaction.user_id == current_user.id,
+                        Transaction.category_id == category.id,
+                        Transaction.type == 'debit',
+                        db.extract('month', Transaction.date) == selected_month,
+                        db.extract('year', Transaction.date) == selected_year
+                    ).scalar() or 0
+
+                    budget_limit = budgets.get(category.id, Budget(limit=0)).limit
+                    
+                    spending_data[category.name] = {
+                        'spent': category_spent,
+                        'limit': budget_limit,
+                        'remaining': max(0, budget_limit - category_spent),
+                        'color': category.color,
+                        'icon': category.icon
+                    }
+                    
+                    total_spent += category_spent
+                    category_totals[category.name] = category_spent
+                    
+                except Exception as e:
+                    print(f"Error processing category {category.name}: {e}")
+                    # Add default values for this category
+                    spending_data[category.name] = {
+                        'spent': 0,
+                        'limit': 0,
+                        'remaining': 0,
+                        'color': category.color,
+                        'icon': category.icon
+                    }
+                    category_totals[category.name] = 0
+
+        except Exception as e:
+            print(f"Spending data error: {e}")
+            spending_data = {'Other': {'spent': 0, 'limit': 0, 'remaining': 0, 'color': '#808080', 'icon': 'tag'}}
+            category_totals = {'Other': 0}
+            total_spent = 0
+            expense_categories = []
+
+        # 5. BUDGET UTILIZATION - with error handling
+        try:
+            budget_categories = [b for b in budgets.values() if b.limit > 0]
+            if budget_categories:
+                budget_utilization = sum(
+                    min(100, (spending_data.get(b.category.name, {}).get('spent', 0) / b.limit) * 100) 
+                    for b in budget_categories
+                ) / len(budget_categories)
+            else:
+                budget_utilization = 0
+        except Exception as e:
+            print(f"Budget utilization error: {e}")
+            budget_utilization = 0
+
+        # 6. TOP SPENDING CATEGORY - with error handling
+        try:
+            if category_totals and any(v > 0 for v in category_totals.values()):
+                top_category = max(category_totals, key=category_totals.get)
+                top_category_amount = category_totals[top_category]
+            else:
+                top_category = "No spending yet"
+                top_category_amount = 0
+        except Exception as e:
+            print(f"Top category error: {e}")
+            top_category = "Error calculating"
+            top_category_amount = 0
+
+        # 7. MONTHLY SPENDING TREND - with error handling
+        try:
+            monthly_spending = get_monthly_spending(current_user.id)
+        except Exception as e:
+            print(f"Monthly spending error: {e}")
+            monthly_spending = {'labels': [], 'data': []}
+
+        # 8. RECENT TRANSACTIONS - with error handling
+        try:
+            recent_transactions = Transaction.query.filter_by(
+                user_id=current_user.id
+            ).order_by(Transaction.date.desc()).limit(5).all()
+        except Exception as e:
+            print(f"Recent transactions error: {e}")
+            recent_transactions = []
+
+        # 9. SPENDING INSIGHTS - with error handling
+        try:
+            insights = generate_insights(current_user.id, selected_month, selected_year)
+        except Exception as e:
+            print(f"Insights error: {e}")
+            insights = []
+
+        # 10. SPENDING PROJECTIONS - with error handling
+        try:
+            projections = calculate_projections(current_user.id, selected_month, selected_year)
+        except Exception as e:
+            print(f"Projections error: {e}")
+            projections = {}
+
+        return render_template('dashboard.html',
+            income=income,
+            expenses=expenses,
+            net_worth=net_worth,
+            spending_data=spending_data,
+            total_spent=total_spent,
+            budget_utilization=round(budget_utilization, 1),
+            top_category=top_category,
+            top_category_amount=top_category_amount,
+            insights=insights,
+            recent_transactions=recent_transactions,
+            monthly_spending=monthly_spending,
+            projections=projections,
+            categories=expense_categories,
+            selected_month=selected_month,
+            selected_year=selected_year,
+            now=datetime.now(),
+            datetime=datetime,
+            timedelta=timedelta,
+            abs=abs
         )
+
+    except Exception as e:
+        app.logger.error(f"Dashboard error: {str(e)}")
+        print(f"Full dashboard error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         
-        # Get budget limit for this category (0 if no budget set)
-        budget_limit = budgets.get(category.id, Budget(limit=0)).limit
-        
-        spending_data[category.name] = {
-            'spent': category_spent,
-            'limit': budget_limit,
-            'remaining': max(0, budget_limit - category_spent),
-            'color': category.color,
-            'icon': category.icon,
-            'is_income': category.is_income
-        }
-        
-        total_spent += category_spent
-        category_totals[category.name] = category_spent
-    
-    # Calculate budget utilization percentage
-    if budgets:
-        budget_utilization = sum(
-            min(100, (data['spent'] / data['limit']) * 100) 
-            for data in spending_data.values() if data['limit'] > 0
-        ) / len(budgets)
-    else:
-        budget_utilization = 0
-    
-    # Find top spending category
-    top_category = ""
-    top_category_amount = 0
-    if category_totals:
-        top_category = max(category_totals, key=category_totals.get)
-        top_category_amount = category_totals[top_category]
-    
-    # Get monthly spending data
-    monthly_spending = get_monthly_spending(current_user.id)
-    
-    # Generate insights
-    insights = generate_insights(current_user.id)
-    
-    # Calculate projections
-    projections = calculate_projections(current_user.id)
-    
-    # Get recent transactions (last 5)
-    recent_transactions = Transaction.query.filter_by(
-        user_id=current_user.id
-    ).order_by(Transaction.date.desc()).limit(5).all()
-    
-    return render_template('dashboard.html',
-        income=income,
-        expenses=expenses,
-        net_worth=net_worth,
-        spending_data=spending_data,
-        total_spent=total_spent,
-        budget_utilization=round(budget_utilization, 1),
-        top_category=top_category,
-        top_category_amount=top_category_amount,
-        insights=insights,
-        recent_transactions=recent_transactions,
-        datetime=datetime,
-        timedelta=timedelta,
-        monthly_spending=monthly_spending,
-        abs=abs,
-        projections=projections,
-        categories=categories
-    )
+        # Return a minimal dashboard if everything fails
+        return render_template('dashboard.html',
+            income=0,
+            expenses=0,
+            net_worth=0,
+            spending_data={},
+            total_spent=0,
+            budget_utilization=0,
+            top_category="No data",
+            top_category_amount=0,
+            insights=[],
+            recent_transactions=[],
+            monthly_spending={'labels': [], 'data': []},
+            projections={},
+            categories=[],
+            selected_month=datetime.now().month,
+            selected_year=datetime.now().year,
+            now=datetime.now(),
+            datetime=datetime,
+            timedelta=timedelta,
+            abs=abs
+        )
 
 #@app.route('/transactions')
 #@login_required
@@ -351,32 +488,54 @@ def transactions():
         datetime=datetime  # Pass datetime for template filters
     )
 
-@app.route('/setup-budget', methods=['GET', 'POST'])
-def setup_budget():
+@app.route('/budget-setup', methods=['GET', 'POST'])
+@login_required 
+def budget_setup():
     if request.method == 'POST':
-        budget_type = request.form.get('budget_type')
+        budget_method = request.form.get('budget_method')
         
-        if budget_type == 'manual':
-            # Start with empty categories for manual setup
+        if budget_method == 'auto':
+            # Auto budget calculation
+            three_months_ago = datetime.now() - relativedelta(months=3)
+            Budget.query.filter_by(user_id=current_user.id).delete()
+            
+            category_spending = db.session.query(
+                Category.id,
+                func.avg(Transaction.amount).label('avg_spending')
+            ).join(Transaction).filter(
+                Transaction.user_id == current_user.id,
+                Transaction.type == 'debit',
+                Transaction.date >= three_months_ago
+            ).group_by(Category.id).all()
+            
+            for category_id, avg_spending in category_spending:
+                if avg_spending > 0:
+                    budget = Budget(
+                        user_id=current_user.id,
+                        category_id=category_id,
+                        limit=avg_spending * 1.2,
+                        period='monthly'
+                    )
+                    db.session.add(budget)
+            
+            # Mark setup complete
+            current_user.has_completed_setup = True
+            db.session.commit()
+            return redirect(url_for('dashboard'))
+            
+        elif budget_method == 'manual':
             return redirect(url_for('edit_budgets', clean_slate=True))
-        
-        elif budget_type == 'auto':
-            auto_calculate_budgets(current_user.id)
-            flash('Budgets created automatically!', 'success')
-        else:  # default
-            create_default_budgets(current_user.id)
-            flash('Default budgets set!', 'success')
-        
-        return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid budget setup method', 'error')
+            return redirect(url_for('budget_setup'))
     
+    # GET request
     return render_template('budget_setup.html')
 
 def auto_calculate_budgets(user_id):
-    # Add your calculation logic here
     pass
 
 def create_default_budgets(user_id):
-    # Add default budget categories
     pass
 
 @app.route('/logout')
@@ -385,59 +544,87 @@ def logout():
     logout_user()
     return redirect(url_for('home'))
 
-def generate_insights(user_id):
-    transactions = Transaction.query.filter_by(user_id=user_id).all()
-    budgets = Budget.query.filter_by(user_id=user_id).all()
-    
+def generate_insights(user_id, selected_month, selected_year):
+    """Generate accurate spending insights"""
     insights = []
     
-    # 1. Top Spending Category (Card)
-    if transactions:
-        by_category = {}
-        for t in transactions:
-            by_category[t.category] = by_category.get(t.category, 0) + t.amount
-        
-        top_category = max(by_category.items(), key=lambda x: x[1])
+    # 1. Get all relevant transactions
+    transactions = Transaction.query.filter(
+        Transaction.user_id == user_id,
+        Transaction.type == 'debit',  # Only expenses
+        db.extract('month', Transaction.date) == selected_month,
+        db.extract('year', Transaction.date) == selected_year
+    ).all()
+    
+    # 2. Calculate total spending
+    total_spent = sum(t.amount for t in transactions)
+    
+    if not transactions:
+        return insights
+    
+    # 3. Top Spending Category
+    by_category = defaultdict(float)
+    for t in transactions:
+        by_category[t.category.name] += t.amount
+    
+    if by_category:
+        top_category, top_amount = max(by_category.items(), key=lambda x: x[1])
         insights.append({
             'type': 'category_leader',
-            'category': top_category[0],
-            'amount': top_category[1],
-            'icon': '💰'  # Emoji or font-awesome class
+            'category': top_category,
+            'amount': top_amount,
+            'percent': (top_amount / total_spent) * 100 if total_spent > 0 else 0
         })
     
-    # 2. Budget Progress (Progress Bar)
+    # 4. Budget Progress Alerts
+    budgets = Budget.query.join(Category).filter(
+        Budget.user_id == user_id,
+        Category.is_income == False  # Only expense budgets
+    ).all()
+    
     for budget in budgets:
-        spent = sum(t.amount for t in transactions if t.category == budget.category)
-        if spent > 0:
+        spent = sum(
+            t.amount for t in transactions 
+            if t.category_id == budget.category_id
+        )
+        
+        if budget.limit > 0:  # Only for categories with budgets
+            percent = (spent / budget.limit) * 100
             insights.append({
                 'type': 'budget_progress',
-                'category': budget.category,
+                'category': budget.category.name,
                 'spent': spent,
                 'limit': budget.limit,
-                'percent': min(100, (spent / budget.limit) * 100)
+                'percent': percent
             })
     
-    # 3. Spending Trend (Comparison)
-    if len(transactions) >= 2:
-        current_month = datetime.now().month
-        last_month = current_month - 1 if current_month > 1 else 12
-        
-        current_total = sum(t.amount for t in transactions if t.date.month == current_month)
-        last_total = sum(t.amount for t in transactions if t.date.month == last_month)
-        
-        if current_total > 0 and last_total > 0:
-            change = ((current_total - last_total) / last_total) * 100
-            insights.append({
-                'type': 'trend',
-                'direction': 'up' if change > 0 else 'down',
-                'percent': abs(round(change)),
-                'current_amount': current_total
-            })
+    # 5. Month-over-Month Comparison
+    prev_month = selected_month - 1 if selected_month > 1 else 12
+    prev_year = selected_year if selected_month > 1 else selected_year - 1
+    
+    current_total = total_spent
+    prev_total = db.session.query(
+        func.sum(Transaction.amount)
+    ).filter(
+        Transaction.user_id == user_id,
+        Transaction.type == 'debit',
+        db.extract('month', Transaction.date) == prev_month,
+        db.extract('year', Transaction.date) == prev_year
+    ).scalar() or 0
+    
+    if prev_total > 0:
+        change = ((current_total - prev_total) / prev_total) * 100
+        insights.append({
+            'type': 'trend',
+            'direction': 'up' if change > 0 else 'down',
+            'percent': abs(round(change, 1)),
+            'current_amount': current_total
+        })
     
     return insights
 
 def get_monthly_spending(user_id):
-    """Returns spending data for the last 6 months"""
+    """Returns spending data for last 6 months (only expenses)"""
     now = datetime.now()
     monthly_data = []
     labels = []
@@ -450,6 +637,7 @@ def get_monthly_spending(user_id):
             func.sum(Transaction.amount)
         ).filter(
             Transaction.user_id == user_id,
+            Transaction.type == 'debit',  # Only expenses
             Transaction.date >= month_start,
             Transaction.date <= month_end
         ).scalar() or 0
@@ -463,14 +651,13 @@ def get_monthly_spending(user_id):
     }
 
 
-def calculate_projections(user_id):
-    """Calculate projected spending with enhanced error handling"""
+def calculate_projections(user_id, current_month, current_year):
+    """Calculate expense projections (only expenses)"""
     try:
         now = datetime.now()
-        start_of_month = now.replace(day=1)
-        days_remaining = max(0, (now.replace(day=1) + relativedelta(months=1) - now).days - 1)
+        start_of_month = datetime(current_year, current_month, 1)
+        days_remaining = max(0, (start_of_month + relativedelta(months=1) - now).days - 1)
         
-        # Initialize default structure
         projections = {
             'total': 0.0,
             'daily_rate': 0.0,
@@ -479,92 +666,83 @@ def calculate_projections(user_id):
             'last_updated': now.strftime('%Y-%m-%d %H:%M')
         }
 
-        # Get all transactions (optimized single query)
-        transactions = Transaction.query.filter(
-            Transaction.user_id == user_id,
-            Transaction.date >= (now - relativedelta(months=3)).replace(day=1)
+        # Get expense categories only
+        categories = Category.query.filter(
+            ((Category.user_id == user_id) | (Category.is_default == True)),
+            Category.is_income == False
         ).all()
-
-        if not transactions:
-            return projections
-
-        # Calculate daily rates per category
-        monthly_totals = defaultdict(lambda: defaultdict(float))
-        for t in transactions:
-            month_key = t.date.strftime('%Y-%m')
-            monthly_totals[month_key][t.category] += t.amount
-
-        # Process each category
-        current_month_spending = defaultdict(float)
-        for t in Transaction.query.filter_by(user_id=user_id).filter(Transaction.date >= start_of_month).all():
-            current_month_spending[t.category] += t.amount
-
-        for category in set(current_month_spending.keys()).union(
-                       *[set(m.keys()) for m in monthly_totals.values()]):
-            daily_rates = []
-            for month, categories in monthly_totals.items():
-                if category in categories:
-                    month_date = datetime.strptime(month, '%Y-%m').date()
-                    days_in_month = (month_date.replace(day=28) + timedelta(days=4)).day
-                    daily_rates.append(categories[category] / days_in_month)
+        
+        # Calculate for each category
+        for category in categories:
+            # Historical spending (past 3 months)
+            historical_spending = db.session.query(
+                func.sum(Transaction.amount)
+            ).filter(
+                Transaction.user_id == user_id,
+                Transaction.category_id == category.id,
+                Transaction.type == 'debit',  # Only expenses
+                Transaction.date >= (start_of_month - relativedelta(months=3)),
+                Transaction.date < start_of_month
+            ).scalar() or 0.0
             
-            if daily_rates:
-                median_rate = statistics.median(daily_rates)
-                projections['categories'][category] = {
-                    'current': current_month_spending.get(category, 0.0),
-                    'daily_rate': median_rate,
-                    'projected': current_month_spending.get(category, 0.0) + (median_rate * days_remaining)
-                }
-
-        # Calculate total projection
-        if monthly_totals:
-            total_daily_rates = [
-                sum(categories.values()) / ((datetime.strptime(month, '%Y-%m').replace(day=28) + timedelta(days=4)).day)
-                for month, categories in monthly_totals.items()
-            ]
-            projections['daily_rate'] = statistics.median(total_daily_rates)
-            projections['total'] = sum(current_month_spending.values()) + (projections['daily_rate'] * days_remaining)
-
+            # Current month spending
+            current_spending = db.session.query(
+                func.sum(Transaction.amount)
+            ).filter(
+                Transaction.user_id == user_id,
+                Transaction.category_id == category.id,
+                Transaction.type == 'debit',  # Only expenses
+                Transaction.date >= start_of_month,
+                Transaction.date <= now
+            ).scalar() or 0.0
+            
+            # Calculate daily rate (average over historical period)
+            days_in_period = (start_of_month - (start_of_month - relativedelta(months=3))).days
+            daily_rate = historical_spending / days_in_period if days_in_period > 0 else 0
+            
+            projections['categories'][category.name] = {
+                'current': current_spending,
+                'daily_rate': daily_rate,
+                'projected': current_spending + (daily_rate * days_remaining)
+            }
+        
         return projections
-
     except Exception as e:
         app.logger.error(f"Projection calculation failed: {str(e)}")
-        return {
-            'error': str(e),
-            'total': 0.0,
-            'daily_rate': 0.0,
-            'days_remaining': max(0, (datetime.now().replace(day=1) + relativedelta(months=1) - datetime.now()).days - 1),
-            'categories': {},
-            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M')
-        }
+        return {'error': str(e)}
 
 @app.route('/edit-budgets', methods=['GET', 'POST'])
 @login_required
 def edit_budgets():
     if request.method == 'POST':
-        # Process form submission
-        for key, value in request.form.items():
-            if key.startswith('budget_'):
-                category_name = key.replace('budget_', '')
-                amount = float(value) if value else 0.0
-                
-                # Find or create category
-                category = Category.query.filter_by(
-                    user_id=current_user.id,
-                    name=category_name
-                ).first()
-                
-                if not category and amount > 0:
-                    category = Category(
+        try:
+            # Process form submission
+            for key, value in request.form.items():
+                if key.startswith('budget_'):
+                    category_name = key.replace('budget_', '')
+                    amount = float(value) if value else 0.0
+                    
+                    # Skip if amount is 0 or negative
+                    if amount <= 0:
+                        continue
+                    
+                    # Find or create category
+                    category = Category.query.filter_by(
                         user_id=current_user.id,
-                        name=category_name,
-                        is_default=False
-                    )
-                    db.session.add(category)
-                    db.session.flush()  # Get the category ID
-                
-                # Update or create budget
-                if amount > 0:
+                        name=category_name
+                    ).first()
+                    
+                    if not category:
+                        # Create new category if it doesn't exist
+                        category = Category(
+                            user_id=current_user.id,
+                            name=category_name,
+                            is_default=False
+                        )
+                        db.session.add(category)
+                        db.session.flush()  # Get the category ID
+                    
+                    # Update or create budget
                     budget = Budget.query.filter_by(
                         user_id=current_user.id,
                         category_id=category.id
@@ -579,29 +757,27 @@ def edit_budgets():
                             limit=amount
                         )
                         db.session.add(budget)
-                else:
-                    # Remove budget if amount is 0
-                    Budget.query.filter_by(
-                        user_id=current_user.id,
-                        category_id=category.id
-                    ).delete()
-        
-        db.session.commit()
-        flash('Budgets updated successfully!', 'success')
-        return redirect(url_for('dashboard'))
-
+            
+            db.session.commit()
+            flash('Budgets updated successfully!', 'success')
+            return redirect(url_for('dashboard'))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error updating budgets: {str(e)}', 'error')
+            return redirect(url_for('edit_budgets'))
+    
     # GET request - show form
     clean_slate = request.args.get('clean_slate', False)
     
     if clean_slate:
-        # Start with empty dictionary for clean slate
         budget_dict = {}
     else:
         # Get existing budgets
         budgets = Budget.query.filter_by(user_id=current_user.id).all()
         budget_dict = {b.category.name: b.limit for b in budgets}
         
-        # Fill in defaults for missing categories (only if not clean slate)
+        # Fill in defaults for missing categories
         default_categories = ['Food', 'Transport', 'Utilities', 
                             'Entertainment', 'Shopping', 'Other']
         for cat in default_categories:
@@ -743,6 +919,7 @@ def save_budgets():
     flash('Budgets saved successfully!', 'success')
     return redirect(url_for('dashboard'))
 
+# Category Selection
 @app.route('/select-categories', methods=['GET', 'POST'])
 @login_required
 def select_categories():
@@ -765,34 +942,333 @@ def select_categories():
         db.session.commit()
         return redirect(url_for('setup_budget'))
     
-    # Show default categories for selection
+    # GET request - show the category selection form
+    # Get default categories to show to user
     default_categories = Category.query.filter_by(is_default=True).all()
+    
+    # If no default categories exist, create some basic ones
+    if not default_categories:
+        basic_categories = [
+            ('Food & Dining', '#FF6B6B', 'utensils', False),
+            ('Transportation', '#4ECDC4', 'car', False),
+            ('Shopping', '#45B7D1', 'shopping-bag', False),
+            ('Bills & Utilities', '#96CEB4', 'file-text', False),
+            ('Entertainment', '#FFEAA7', 'film', False),
+            ('Other', '#DDA0DD', 'tag', False),
+            ('Salary', '#95E1D3', 'dollar-sign', True),
+            ('Other Income', '#A8E6CF', 'plus-circle', True)
+        ]
+        
+        for name, color, icon, is_income in basic_categories:
+            cat = Category(
+                name=name,
+                color=color,
+                icon=icon,
+                is_income=is_income,
+                is_default=True,
+                user_id=None  # Default categories have no user_id
+            )
+            db.session.add(cat)
+        
+        db.session.commit()
+        default_categories = Category.query.filter_by(is_default=True).all()
+    
     return render_template('select_categories.html', categories=default_categories)
 
-def calculate_auto_budgets(user_id):
-    # Get 3 months of transaction history
-    three_months_ago = datetime.now() - timedelta(days=90)
+
+@app.route('/auto-calculate-budgets', methods=['POST'])
+@login_required
+def auto_calculate_budgets():
+    try:
+        # Get 3 months of spending history
+        three_months_ago = datetime.now() - relativedelta(months=3)
+        
+        # Calculate average spending per category
+        category_spending = db.session.query(
+            Category.id,
+            Category.name,
+            func.avg(Transaction.amount).label('avg_spending')
+        ).join(
+            Transaction, Transaction.category_id == Category.id
+        ).filter(
+            Transaction.user_id == current_user.id,
+            Transaction.type == 'debit',
+            Transaction.date >= three_months_ago
+        ).group_by(
+            Category.id, Category.name
+        ).all()
+        
+        # Create/update budgets with 20% buffer
+        for category_id, name, avg_spending in category_spending:
+            if avg_spending > 0:
+                budget = Budget.query.filter_by(
+                    user_id=current_user.id,
+                    category_id=category_id
+                ).first()
+                
+                if not budget:
+                    budget = Budget(
+                        user_id=current_user.id,
+                        category_id=category_id
+                    )
+                    db.session.add(budget)
+                
+                budget.limit = avg_spending * 1.2  # 20% buffer
+                budget.period = 'monthly'
+        
+        db.session.commit()
+        flash('Budgets automatically calculated with 20% buffer!', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error calculating budgets: {str(e)}', 'error')
     
-    # Calculate average spending per category
-    results = db.session.query(
-        Category.name,
-        func.avg(Transaction.amount).label('avg_spending')
-    ).join(
-        Transaction, Transaction.category_id == Category.id
+    return redirect(url_for('edit_budgets'))
+
+@app.route('/reports')
+@login_required
+def reports():
+    # Get all unique month/year combinations with transactions
+    date_parts = db.session.query(
+        db.extract('year', Transaction.date).label('year'),
+        db.extract('month', Transaction.date).label('month'),
+        func.count(Transaction.id).label('count')
     ).filter(
-        Transaction.user_id == user_id,
-        Transaction.date >= three_months_ago,
-        Transaction.type == 'debit'  # Only consider expenses
+        Transaction.user_id == current_user.id
     ).group_by(
-        Category.name
+        db.extract('year', Transaction.date),
+        db.extract('month', Transaction.date)
+    ).order_by(
+        db.extract('year', Transaction.date).desc(),
+        db.extract('month', Transaction.date).desc()
     ).all()
-    
-    budgets = {}
-    for category, avg_spending in results:
-        # Add 20% buffer to average spending
-        budgets[category] = avg_spending * 1.2
-    
-    return budgets
+
+    # Group by year
+    reports_by_year = defaultdict(list)
+    for year, month, count in date_parts:
+        reports_by_year[int(year)].append({
+            'month': int(month),
+            'count': count
+        })
+
+    return render_template('reports.html', 
+                         reports_by_year=dict(reports_by_year),
+                         datetime=datetime)
+
+@app.route('/skip-setup')
+@login_required
+def skip_setup():
+    """Emergency route to skip setup and go directly to dashboard"""
+    current_user.has_completed_setup = True
+    db.session.commit()
+    flash('Setup skipped - you can configure categories and budgets later', 'info')
+    return redirect(url_for('dashboard'))
+
+@app.route('/report/<int:year>/<int:month>')
+@login_required
+def monthly_report(year, month):
+    try:
+        # Validate input parameters
+        if not (1 <= month <= 12):
+            flash("Invalid month selected", "error")
+            return redirect(url_for('reports'))
+        if year < 2000 or year > datetime.now().year + 1:
+            flash("Invalid year selected", "error")
+            return redirect(url_for('reports'))
+
+        # Calculate date range for the selected month
+        start_date = datetime(year, month, 1)
+        if month == 12:
+            end_date = datetime(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end_date = datetime(year, month + 1, 1) - timedelta(days=1)
+
+        # Calculate previous month for comparison
+        if month > 1:
+            prev_month = month - 1
+            prev_year = year
+        else:
+            prev_month = 12
+            prev_year = year - 1
+
+        # Get all transactions for the selected month
+        transactions = Transaction.query.filter(
+            Transaction.user_id == current_user.id,
+            Transaction.date >= start_date,
+            Transaction.date <= end_date
+        ).order_by(Transaction.date.desc()).all()
+
+        # Calculate income and expenses
+        income = sum(t.amount for t in transactions if t.type == 'credit')
+        expenses = sum(t.amount for t in transactions if t.type == 'debit')
+        net_change = income - expenses
+
+        # Calculate category breakdown (only expense categories)
+        categories = Category.query.filter(
+            ((Category.user_id == current_user.id) | (Category.is_default == True)),
+            Category.is_income == False
+        ).all()
+
+        spending_data = {}
+        for category in categories:
+            category_spent = sum(
+                t.amount for t in transactions 
+                if t.category_id == category.id and t.type == 'debit'
+            )
+            budget = Budget.query.filter_by(
+                user_id = current_user.id,
+                category_id = category.id
+            ).first()
+            
+            spending_data[category.name] = {
+                'spent': category_spent,
+                'limit': budget.limit if budget else 0,
+                'color': category.color,
+                'icon': category.icon
+            }
+
+        # Calculate previous month's expenses for comparison
+        prev_month_expenses = db.session.query(
+            func.sum(Transaction.amount)
+        ).filter(
+            Transaction.user_id == current_user.id,
+            Transaction.type == 'debit',
+            db.extract('month', Transaction.date) == prev_month,
+            db.extract('year', Transaction.date) == prev_year
+        ).scalar() or 0
+
+        spending_change = expenses - prev_month_expenses
+        if prev_month_expenses > 0:
+            spending_change_percent = (spending_change / prev_month_expenses) * 100
+        else:
+            spending_change_percent = 0
+
+        # Calculate daily spending pattern
+        daily_spending = db.session.query(
+            db.extract('day', Transaction.date).label('day'),
+            func.sum(Transaction.amount).label('amount')
+        ).filter(
+            Transaction.user_id == current_user.id,
+            Transaction.type == 'debit',
+            Transaction.date >= start_date,
+            Transaction.date <= end_date
+        ).group_by('day').order_by('day').all()
+
+        daily_data = {
+            'labels': [str(day) for day in range(1, end_date.day + 1)],
+            'data': [0] * end_date.day
+        }
+
+        for day, amount in daily_spending:
+            if day and amount:
+                daily_data['data'][int(day) - 1] = float(amount)
+
+        return render_template('monthly_report.html',
+            year=year,
+            month=month,
+            month_name=start_date.strftime('%B'),
+            start_date=start_date,
+            end_date=end_date,
+            income=income,
+            expenses=expenses,
+            net_change=net_change,
+            spending_data=spending_data,
+            transactions=transactions,
+            prev_year=prev_year,
+            prev_month=prev_month,
+            spending_change=spending_change,
+            spending_change_percent=abs(round(spending_change_percent, 1)),
+            spending_change_direction='up' if spending_change > 0 else 'down',
+            daily_data=daily_data,
+            datetime=datetime,
+            min=min,  # Explicitly pass min function
+            abs=abs   # Explicitly pass abs function
+        )
+
+    except Exception as e:
+        app.logger.error(f"Monthly report error: {str(e)}")
+        flash("An error occurred while generating the monthly report", "error")
+        return redirect(url_for('reports'))
+
+
+@app.route('/setup-budget', methods=['GET'])
+@login_required
+def setup_budget():
+    """Show the budget setup method selection page"""
+    return render_template('setup_budget.html')
+
+@app.route('/handle-budget-setup', methods=['POST'])
+@login_required
+def handle_budget_setup():
+    """Process the budget method selection"""
+    try:
+        budget_method = request.form.get('budget_method')
+        
+        if budget_method == 'auto':
+            # Auto budget calculation logic
+            three_months_ago = datetime.now() - relativedelta(months=3)
+            Budget.query.filter_by(user_id=current_user.id).delete()
+            
+            category_spending = db.session.query(
+                Category.id,
+                func.avg(Transaction.amount).label('avg_spending')
+            ).join(Transaction).filter(
+                Transaction.user_id == current_user.id,
+                Transaction.type == 'debit',
+                Transaction.date >= three_months_ago
+            ).group_by(Category.id).all()
+            
+            for category_id, avg_spending in category_spending:
+                if avg_spending > 0:
+                    budget = Budget(
+                        user_id=current_user.id,
+                        category_id=category_id,
+                        limit=avg_spending * 1.2,
+                        period='monthly'
+                    )
+                    db.session.add(budget)
+            
+            current_user.has_completed_setup = True
+            db.session.commit()
+            flash('Budgets automatically calculated!', 'success')
+            return redirect(url_for('dashboard'))
+            
+        elif budget_method == 'manual':
+            return redirect(url_for('edit_budgets'))
+            
+        flash('Invalid budget method', 'error')
+        return redirect(url_for('setup_budget'))
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error: {str(e)}', 'error')
+        return redirect(url_for('setup_budget'))
+
+
+@app.route('/update-transaction-category', methods=['POST'])
+@login_required
+def update_transaction_category():
+    try:
+        data = request.get_json()
+        transaction = Transaction.query.filter_by(
+            id=data['transaction_id'],
+            user_id=current_user.id
+        ).first_or_404()
+        
+        category = Category.query.filter_by(
+            id=data['new_category_id'],
+            user_id=current_user.id
+        ).first_or_404()
+        
+        transaction.category_id = category.id
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'new_category_name': category.name,
+            'new_category_color': category.color
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400  
 
 if __name__ == '__main__':
     app.run(debug=True)

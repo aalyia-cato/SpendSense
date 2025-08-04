@@ -8,6 +8,30 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+    /* Budget option styling */
+    .budget-option {
+      transition: all 0.2s ease;
+      border: 2px solid #e5e7eb;
+    }
+    .budget-option:hover {
+      border-color: #3B82F6;
+      transform: translateY(-2px);
+    }
+    input[type="radio"]:checked + .budget-option {
+      border-color: #3B82F6;
+      background-color: rgba(59, 130, 246, 0.05);
+    }
+    
+    /* Dashboard card animations */
+    .stat-card {
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .stat-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+  </style>
 </head>
 <body class="bg-gray-100">
     <nav class="bg-blue-600 text-white p-4 shadow-lg">
@@ -15,9 +39,14 @@
             <a href="/" class="text-2xl font-bold">SpendSense</a>
             <div class="flex space-x-4">
                 {% if current_user.is_authenticated %}
+                            {% if not current_user.has_completed_setup %}
+        <a href="{{ url_for('select_categories') }}" class="hover:underline">Complete Setup</a>
+    {% else %}
+        <a href="{{ url_for('edit_budgets') }}" class="hover:underline">Budgets</a>
+    {% endif %}
                     <a href="{{ url_for('dashboard') }}" class="hover:underline">Dashboard</a>
+                    <a href="{{ url_for('reports') }}" class="hover:underline">Reports</a>  
                     <a href="{{ url_for('manage_categories') }}" class="hover:underline">Categories</a>
-                    <a href="{{ url_for('setup_budget') }}" class="hover:underline">Budget Setup</a>
                     <a href="{{ url_for('transactions') }}" class="hover:underline">Transactions</a>
                     <a href="{{ url_for('logout') }}" class="hover:underline">Logout</a>
                 {% else %}

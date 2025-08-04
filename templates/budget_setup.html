@@ -1,57 +1,40 @@
 {% extends "base.html" %}
 
+{% block title %}Budget Setup - SpendSense{% endblock %}
+
 {% block content %}
 <div class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-lg mt-10">
-    <h2 class="text-2xl font-bold mb-6 text-center">Budget Setup</h2>
-    <p class="text-gray-600 mb-6 text-center">
-        Let's set up your budgets. You can change these later anytime.
-    </p>
+    <h2 class="text-2xl font-bold mb-6 text-center">Budget Setup Method</h2>
     
     <form method="POST" class="space-y-6">
-        {% for category in current_user.categories if not category.is_income %}
-        <div class="flex items-center justify-between">
-            <label for="budget_{{ category.id }}" class="font-medium">
-                {{ category.name }}
-            </label>
-            <div class="relative rounded-md shadow-sm w-1/2">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <span class="text-gray-500">$</span>
-                </div>
-                <input type="number" step="0.01" 
-                       id="budget_{{ category.id }}" 
-                       name="budget_{{ category.id }}"
-                       placeholder="0.00"
-                       class="block w-full pl-7 pr-12 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+        <div class="space-y-4">
+            <div class="flex items-center p-4 border rounded-lg hover:bg-gray-50">
+                <input type="radio" id="auto" name="budget_method" value="auto" class="h-5 w-5" checked>
+                <label for="auto" class="ml-3 block">
+                    <span class="font-medium">Automatic Budgets</span>
+                    <p class="text-sm text-gray-500">We'll calculate budgets based on your transaction history</p>
+                </label>
+            </div>
+            
+            <div class="flex items-center p-4 border rounded-lg hover:bg-gray-50">
+                <input type="radio" id="manual" name="budget_method" value="manual" class="h-5 w-5">
+                <label for="manual" class="ml-3 block">
+                    <span class="font-medium">Manual Budget Entry</span>
+                    <p class="text-sm text-gray-500">I'll enter my own budget amounts</p>
+                </label>
             </div>
         </div>
-        {% endfor %}
         
-        <div class="pt-4">
-            <button type="submit" 
-                    class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg">
-                Save Budgets & Continue
-            </button>
-        </div>
+        <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700">
+            Continue
+        </button>
     </form>
-</div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Set default values for common categories
-    const defaults = {
-        'Food': 15000,
-        'Transport': 8000,
-        'Utilities': 12000,
-        'Entertainment': 5000,
-        'Shopping': 7000
-    };
-    
-    document.querySelectorAll('input[type="number"]').forEach(input => {
-        const categoryName = input.previousElementSibling.textContent.trim();
-        if (defaults[categoryName]) {
-            input.value = defaults[categoryName];
-        }
-    });
-});
-</script>
+    <!-- Skip setup link added here -->
+    <div class="mt-6 text-center">
+        <a href="{{ url_for('dashboard') }}" class="text-blue-600 hover:text-blue-800 text-sm">
+            Skip setup and go to dashboard
+        </a>
+    </div>
+</div>
 {% endblock %}

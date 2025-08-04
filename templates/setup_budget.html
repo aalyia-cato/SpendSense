@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Budget Setup{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden md:max-w-2xl mt-10">
+    <div class="p-8">
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">Budget Setup Method</h1>
+            <p class="text-gray-600">Choose how to set up your budgets</p>
+        </div>
+
+        <form method="POST" action="{{ url_for('handle_budget_setup') }}" class="space-y-6">
+            <div class="space-y-4">
+                <label class="block">
+                    <input type="radio" name="budget_method" value="auto" class="hidden peer" checked>
+                    <div class="p-4 border-2 rounded-lg peer-checked:border-blue-500 peer-checked:bg-blue-50 hover:border-blue-300 transition-all">
+                        <div class="font-medium">Automatic Setup</div>
+                        <p class="text-sm text-gray-500">We'll calculate budgets based on your spending history</p>
+                    </div>
+                </label>
+
+                <label class="block">
+                    <input type="radio" name="budget_method" value="manual" class="hidden peer">
+                    <div class="p-4 border-2 rounded-lg peer-checked:border-blue-500 peer-checked:bg-blue-50 hover:border-blue-300 transition-all">
+                        <div class="font-medium">Manual Setup</div>
+                        <p class="text-sm text-gray-500">I'll enter my own budget amounts</p>
+                    </div>
+                </label>
+            </div>
+
+            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition">
+                Continue
+            </button>
+        </form>
+
+        <!-- Skip setup link added here -->
+        <div class="mt-4 text-center">
+            <a href="{{ url_for('dashboard') }}" class="text-blue-600 hover:underline">
+                Skip setup and go to dashboard
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
